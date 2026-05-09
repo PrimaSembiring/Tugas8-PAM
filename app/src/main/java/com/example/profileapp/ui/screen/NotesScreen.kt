@@ -1,5 +1,8 @@
 package com.example.profileapp.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,8 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-//import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.outlined.Star as StarOutlined
+import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,9 +27,10 @@ import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 import com.example.profileapp.data.PostListUiState
 import com.example.profileapp.NoteEntity
+import com.example.profileapp.platform.NetworkMonitor
 import com.example.profileapp.viewmodel.NoteViewModel
 import com.example.profileapp.viewmodel.PostViewModel
-
+import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,10 +43,14 @@ fun NotesScreen(
     val notes by viewModel.notes.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-
     val listUiState by postViewModel.listUiState.collectAsState()
     val isRefreshing by postViewModel.isRefreshing.collectAsState()
     val createState by postViewModel.createState.collectAsState()
+
+    // ✅ NetworkMonitor di-inject via Koin
+    val networkMonitor: NetworkMonitor = koinInject()
+    val isConnected by networkMonitor.observeConnectivity()
+        .collectAsState(initial = true)
 
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
@@ -56,226 +63,255 @@ fun NotesScreen(
             }
         }
     ) { padding ->
-
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp)
         ) {
 
-            // ── SEARCH BAR ─────────────────────────────────────
-            item {
-                Spacer(modifier = Modifier.height(12.dp))
-                NoteSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { viewModel.setSearchQuery(it) },
-                    onClear = { viewModel.setSearchQuery("") }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            // ── HEADER NOTES LOKAL ────────────────────────────
-            item {
-                Text(
-                    text = "📝 Notes Lokal",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
-
-            // ── LOADING STATE ─────────────────────────────────
-            if (isLoading) {
-                item {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) { CircularProgressIndicator() }
-                }
-            }
-
-            // ── EMPTY STATE ───────────────────────────────────
-            if (notes.isEmpty() && !isLoading && searchQuery.isBlank()) {
-                item {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("📭", fontSize = 48.sp)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Belum ada notes",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "Tekan + untuk menambah note baru",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── EMPTY SEARCH RESULT ───────────────────────────
-            if (notes.isEmpty() && searchQuery.isNotBlank()) {
-                item {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("🔍", fontSize = 48.sp)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Tidak ada hasil untuk \"$searchQuery\"",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── LIST NOTES LOKAL ──────────────────────────────
-            items(notes, key = { it.id }) { note ->
-                LocalNoteCard(
-                    note = note,
-                    onDelete = { viewModel.deleteNote(note.id) },
-                    onToggleFavorite = {
-                        viewModel.toggleFavorite(note.id, note.is_favorite == 1L)
-                    }
-                )
-            }
-
-            // ── DIVIDER + API SECTION TOGGLE ──────────────────
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showApiSection = !showApiSection }
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            // ── NETWORK STATUS INDICATOR ──────────────────────
+            AnimatedVisibility(
+                visible = !isConnected,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.error
                 ) {
-                    Text(
-                        text = "🌐 Posts dari API (JSONPlaceholder)",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = if (showApiSection) "▲ Sembunyikan" else "▼ Tampilkan",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SignalWifiOff,
+                            contentDescription = "Offline",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Tidak ada koneksi internet — Mode Offline",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // ── API SECTION ───────────────────────────────────
-            if (showApiSection) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+            ) {
+
+                // ── SEARCH BAR ─────────────────────────────────────
                 item {
-                    SwipeRefresh(
-                        state = rememberSwipeRefreshState(isRefreshing),
-                        onRefresh = { postViewModel.refresh() }
-                    ) {
-                        when (val state = listUiState) {
-                            is PostListUiState.Loading -> {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                    contentAlignment = Alignment.Center
-                                ) { CircularProgressIndicator() }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    NoteSearchBar(
+                        query = searchQuery,
+                        onQueryChange = { viewModel.setSearchQuery(it) },
+                        onClear = { viewModel.setSearchQuery("") }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                // ── HEADER NOTES LOKAL ────────────────────────────
+                item {
+                    Text(
+                        text = "📝 Notes Lokal",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
+                // ── LOADING STATE ─────────────────────────────────
+                if (isLoading) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) { CircularProgressIndicator() }
+                    }
+                }
+
+                // ── EMPTY STATE ───────────────────────────────────
+                if (notes.isEmpty() && !isLoading && searchQuery.isBlank()) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("📭", fontSize = 48.sp)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Belum ada notes",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "Tekan + untuk menambah note baru",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
+                        }
+                    }
+                }
 
-                            is PostListUiState.Success -> {
-                                Column {
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 12.dp),
-                                        elevation = CardDefaults.cardElevation(2.dp)
+                // ── EMPTY SEARCH RESULT ───────────────────────────
+                if (notes.isEmpty() && searchQuery.isNotBlank()) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("🔍", fontSize = 48.sp)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Tidak ada hasil untuk \"$searchQuery\"",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── LIST NOTES LOKAL ──────────────────────────────
+                items(notes, key = { it.id }) { note ->
+                    LocalNoteCard(
+                        note = note,
+                        onDelete = { viewModel.deleteNote(note.id) },
+                        onToggleFavorite = {
+                            viewModel.toggleFavorite(note.id, note.is_favorite == 1L)
+                        }
+                    )
+                }
+
+                // ── DIVIDER + API SECTION TOGGLE ──────────────────
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showApiSection = !showApiSection }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🌐 Posts dari API (JSONPlaceholder)",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = if (showApiSection) "▲ Sembunyikan" else "▼ Tampilkan",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // ── API SECTION ───────────────────────────────────
+                if (showApiSection) {
+                    item {
+                        SwipeRefresh(
+                            state = rememberSwipeRefreshState(isRefreshing),
+                            onRefresh = { postViewModel.refresh() }
+                        ) {
+                            when (val state = listUiState) {
+                                is PostListUiState.Loading -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) { CircularProgressIndicator() }
+                                }
+                                is PostListUiState.Success -> {
+                                    Column {
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 12.dp),
+                                            elevation = CardDefaults.cardElevation(2.dp)
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+                                                Text(
+                                                    "Tambah Post ke API",
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                TextField(
+                                                    value = title,
+                                                    onValueChange = { title = it },
+                                                    label = { Text("Title") },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                TextField(
+                                                    value = body,
+                                                    onValueChange = { body = it },
+                                                    label = { Text("Body") },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Button(onClick = {
+                                                    postViewModel.createPost(title, body)
+                                                    title = ""
+                                                    body = ""
+                                                }) { Text("Submit ke API") }
+
+                                                when (createState) {
+                                                    is PostListUiState.Loading -> CircularProgressIndicator()
+                                                    is PostListUiState.Success -> Text(
+                                                        "✅ Berhasil tambah data",
+                                                        color = Color(0xFF388E3C)
+                                                    )
+                                                    is PostListUiState.Error -> Text(
+                                                        "❌ Gagal tambah data",
+                                                        color = Color.Red
+                                                    )
+                                                    null -> {}
+                                                }
+                                            }
+                                        }
+                                        state.posts.forEach { post ->
+                                            PostCard(
+                                                id = post.id,
+                                                title = post.title,
+                                                body = post.body,
+                                                onClick = { onClickDetail(post.id) }
+                                            )
+                                        }
+                                    }
+                                }
+                                is PostListUiState.Error -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
-                                            Text(
-                                                "Tambah Post ke API",
-                                                style = MaterialTheme.typography.titleSmall
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            TextField(
-                                                value = title,
-                                                onValueChange = { title = it },
-                                                label = { Text("Title") },
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            TextField(
-                                                value = body,
-                                                onValueChange = { body = it },
-                                                label = { Text("Body") },
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Button(onClick = {
-                                                postViewModel.createPost(title, body)
-                                                title = ""
-                                                body = ""
-                                            }) { Text("Submit ke API") }
-
-                                            when (createState) {
-                                                is PostListUiState.Loading -> CircularProgressIndicator()
-                                                is PostListUiState.Success -> Text(
-                                                    "✅ Berhasil tambah data",
-                                                    color = Color(0xFF388E3C)
-                                                )
-                                                is PostListUiState.Error -> Text(
-                                                    "❌ Gagal tambah data",
-                                                    color = Color.Red
-                                                )
-                                                null -> {}
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Text("😕 Gagal memuat data API", fontWeight = FontWeight.Bold)
+                                            Text(state.message, color = Color.Gray)
+                                            Button(onClick = { postViewModel.loadPosts() }) {
+                                                Text("Coba Lagi")
                                             }
                                         }
                                     }
-
-                                    state.posts.forEach { post ->
-                                        PostCard(
-                                            id = post.id,
-                                            title = post.title,
-                                            body = post.body,
-                                            onClick = { onClickDetail(post.id) }
-                                        )
-                                    }
-                                }
-                            }
-
-                            is PostListUiState.Error -> {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Text(
-                                            "😕 Gagal memuat data API",
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(state.message, color = Color.Gray)
-                                        Button(onClick = { postViewModel.loadPosts() }) {
-                                            Text("Coba Lagi")
-                                        }
-                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            item { Spacer(modifier = Modifier.height(80.dp)) }
+                item { Spacer(modifier = Modifier.height(80.dp)) }
+            }
         }
     }
 }
@@ -290,9 +326,7 @@ private fun NoteSearchBar(
         value = query,
         onValueChange = onQueryChange,
         placeholder = { Text("Cari notes...") },
-        leadingIcon = {
-            Icon(Icons.Default.Search, contentDescription = "Search")
-        },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
         trailingIcon = {
             if (query.isNotEmpty()) {
                 IconButton(onClick = onClear) {
@@ -313,9 +347,7 @@ private fun LocalNoteCard(
     onToggleFavorite: () -> Unit
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(12.dp)
     ) {
@@ -332,10 +364,7 @@ private fun LocalNoteCard(
                     modifier = Modifier.weight(1f)
                 )
                 Row {
-                    IconButton(
-                        onClick = onToggleFavorite,
-                        modifier = Modifier.size(32.dp)
-                    ) {
+                    IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Star,
                             contentDescription = "Favorite",
@@ -343,10 +372,7 @@ private fun LocalNoteCard(
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(32.dp)
-                    ) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Hapus",
@@ -368,17 +394,9 @@ private fun LocalNoteCard(
 }
 
 @Composable
-private fun PostCard(
-    id: Int,
-    title: String,
-    body: String,
-    onClick: () -> Unit
-) {
+private fun PostCard(id: Int, title: String, body: String, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 12.dp)
-            .clickable { onClick() },
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {

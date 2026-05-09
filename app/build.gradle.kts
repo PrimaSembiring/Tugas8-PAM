@@ -3,7 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-
     id("app.cash.sqldelight") version "2.0.2"
 }
 
@@ -58,13 +57,14 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
+    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     // VIEWMODEL + NAVIGATION
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    // 🔥 SQLDELIGHT (WAJIB)
+    // SQLDELIGHT
     implementation("app.cash.sqldelight:android-driver:2.0.2")
     implementation("app.cash.sqldelight:coroutines-extensions:2.0.2")
 
@@ -84,4 +84,8 @@ dependencies {
 
     // ACCOMPANIST
     implementation("com.google.accompanist:accompanist-swiperefresh:0.34.0")
+
+    // KOIN
+    implementation("io.insert-koin:koin-android:3.5.3")
+    implementation("io.insert-koin:koin-androidx-compose:3.5.3")
 }
